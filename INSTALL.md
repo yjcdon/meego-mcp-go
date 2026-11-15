@@ -50,6 +50,15 @@ Go 代理直接从这个条目读取凭证，不依赖其他 MCP。日后可以�
 
 运行 `codex mcp list`，确认 `feishu_project_readonly_mcp` 已启用，启动命令指向 Go 二进制。这一步验证配置能被 Codex 读取。重启 Codex 后，在新会话试一次只读查询，例如「通过飞书项目 MCP 查询我最近访问的项目」。返回项目数据后，即可确认凭证和连接都可用。条目名里的 `readonly` 沿用旧版命名，工具权限由飞书项目账号决定。 [Codex MCP 配置说明](https://learn.chatgpt.com/docs/extend/mcp?surface=app)
 
+Codex 若弹出确认框，核对工具名为 `search_project_info` 后批准这次查询。已获授权的非交互验证可以使用下面的命令，临时只开放这个 MCP 的查询工具，并让本次会话直接调用。命令行选项不会写回配置文件。
+
+```bash
+codex exec --ephemeral --sandbox read-only \
+  -c 'mcp_servers.feishu_project_readonly_mcp.enabled_tools=["search_project_info"]' \
+  -c 'mcp_servers.feishu_project_readonly_mcp.tools.search_project_info.approval_mode="approve"' \
+  '只调用飞书项目 MCP 的 search_project_info，参数 page_num 设为 1，查询最近访问的项目。'
+```
+
 如果代理无法连接，检查 Token 是否仍有效，以及账号是否有目标空间权限。如果选择了其他条目名，通过 `--credential-server` 指明凭证所在的表。若旧版安装仍保留，可以恢复原来的启动命令和参数回滚。
 
 ### 可选参数
