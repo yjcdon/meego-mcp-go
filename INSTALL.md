@@ -34,28 +34,23 @@ go build -trimpath -o "$HOME/.local/bin/meego-mcp-go" .
 
 编辑本机的 `~/.codex/config.toml`，把 `command` 的占位路径替换为安装命令输出的绝对路径。填入你的**飞书项目 MCP 用户 Token**。如果原来的 `meego-mcp-cli` 已能连接，可以直接在本机配置中拷贝旧条目的 `MCP_USER_TOKEN`。只有项目链接时，请向飞书项目管理员确认如何取得相应的 MCP 凭证。
 
-已有同名 TOML 表时在原处合并字段，避免重复声明。迁移旧版时，复制凭证之后将启动 `meego-mcp-cli` 的旧条目设为 `enabled = false`。
+首次安装只需下面这一个 MCP 条目。已有同名表时替换 `command`，保留 `MCP_USER_TOKEN`，并移除原来传给 `meego-mcp-cli` 的 `args` 和 `DOTENV_CONFIG_QUIET`。
 
 ```toml
-[mcp_servers.feishu_project_go]
+[mcp_servers.feishu_project_readonly_mcp]
 command = "/Users/yourname/.local/bin/meego-mcp-go"
-args = ["--credential-server", "feishu_project_credentials"]
 
-[mcp_servers.feishu_project_credentials]
-command = "/usr/bin/false"
-enabled = false
-
-[mcp_servers.feishu_project_credentials.env]
+[mcp_servers.feishu_project_readonly_mcp.env]
 MCP_USER_TOKEN = "REPLACE_WITH_YOUR_MEEGO_MCP_USER_TOKEN"
 ```
 
-Go 代理按 `--credential-server` 直接从配置文件读取凭证。Codex 要求禁用条目也有合法的传输配置，因此凭证条目同时包含 `command` 和 `enabled = false`。运行时只启动 `feishu_project_go`。真实 Token 请留在本机配置文件中。
+Go 代理直接从这个条目读取凭证，不依赖其他 MCP。日后可以在 Codex 的 MCP 设置中打开 `feishu_project_readonly_mcp`，在环境变量区域编辑 `MCP_USER_TOKEN`，也可以编辑同一段 TOML。真实 Token 请留在本机配置文件中。
 
 ## 3. 验证
 
-运行 `codex mcp list`，确认 `feishu_project_go` 已启用，`feishu_project_credentials` 已禁用。这一步验证配置能被 Codex 读取。重启 Codex 后，在新会话试一次只读查询，例如「通过飞书项目 MCP 查询我最近访问的项目」。返回项目数据后，即可确认凭证和连接都可用。 [Codex MCP 配置说明](https://learn.chatgpt.com/docs/extend/mcp?surface=app)
+运行 `codex mcp list`，确认 `feishu_project_readonly_mcp` 已启用，启动命令指向 Go 二进制。这一步验证配置能被 Codex 读取。重启 Codex 后，在新会话试一次只读查询，例如「通过飞书项目 MCP 查询我最近访问的项目」。返回项目数据后，即可确认凭证和连接都可用。条目名里的 `readonly` 沿用旧版命名，工具权限由飞书项目账号决定。 [Codex MCP 配置说明](https://learn.chatgpt.com/docs/extend/mcp?surface=app)
 
-如果代理无法连接，检查 Token 是否仍有效、是否有目标空间权限，以及 `--credential-server` 是否与凭证表名相同。若旧版安装仍保留，可以禁用 Go 条目并重新启用旧条目回滚。
+如果代理无法连接，检查 Token 是否仍有效，以及账号是否有目标空间权限。如果选择了其他条目名，通过 `--credential-server` 指明凭证所在的表。若旧版安装仍保留，可以恢复原来的启动命令和参数回滚。
 
 ### 可选参数
 
