@@ -171,7 +171,7 @@ type rawResult struct {
 // Register internal aliases so the SDK handles protocol lifecycle and
 // errors while the proxy preserves the original JSON for forwarded tools.
 func newProxy(upstream *mcp.ClientSession) (*mcp.Server, error) {
-	server := mcp.NewServer(&mcp.Implementation{Name: "meego-mcp-go", Version: "0.1.0"}, &mcp.ServerOptions{
+	server := mcp.NewServer(&mcp.Implementation{Name: "meego-mcp-go", Version: "1.0.0"}, &mcp.ServerOptions{
 		Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{}},
 		Logger:       slog.New(slog.DiscardHandler),
 	})
