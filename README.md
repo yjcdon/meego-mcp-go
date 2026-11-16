@@ -12,4 +12,4 @@ Go 版以单个可执行文件运行。它从 Codex 配置读取 `MCP_USER_TOKEN
 
 ## 安装
 
-[安装教程](INSTALL.md) 提供二进制下载、校验和 Codex 配置。填入飞书项目 Token 即可使用。
+[安装教程](INSTALL.md) 提供二进制下载和 Codex 配置。填入飞书项目 Token 即可使用。

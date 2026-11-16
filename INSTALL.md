@@ -17,8 +17,6 @@
   release_url='https://github.com/yjcdon/meego-mcp-go/releases/download/v2.0.0'
   archive='meego-mcp-go_darwin_arm64.tar.gz'
   curl -fL --retry 2 -o "$archive" "$release_url/$archive"
-  curl -fL --retry 2 -o SHA256SUMS "$release_url/SHA256SUMS"
-  shasum -a 256 -c SHA256SUMS
   tar -xzf "$archive"
   mkdir -p "$HOME/.local/bin"
   install -m 755 meego-mcp-go "$HOME/.local/bin/meego-mcp-go"
@@ -36,14 +34,9 @@ $releaseUrl = 'https://github.com/yjcdon/meego-mcp-go/releases/download/v2.0.0'
 $archive = 'meego-mcp-go_windows_amd64.zip'
 $temp = Join-Path ([System.IO.Path]::GetTempPath()) ([guid]::NewGuid().ToString())
 $zip = Join-Path $temp $archive
-$checksum = Join-Path $temp "$archive.sha256"
 $bin = Join-Path $HOME '.local\bin'
 New-Item -ItemType Directory -Path $temp, $bin -Force | Out-Null
 Invoke-WebRequest -UseBasicParsing -Uri "$releaseUrl/$archive" -OutFile $zip
-Invoke-WebRequest -UseBasicParsing -Uri "$releaseUrl/$archive.sha256" -OutFile $checksum
-if ((Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash -ne (Get-Content -Raw -LiteralPath $checksum).Trim()) {
-    throw 'SHA-256 校验失败。'
-}
 Expand-Archive -LiteralPath $zip -DestinationPath $temp
 Copy-Item -LiteralPath (Join-Path $temp 'meego-mcp-go.exe') -Destination $bin -Force
 (Join-Path $bin 'meego-mcp-go.exe').Replace('\', '/')
