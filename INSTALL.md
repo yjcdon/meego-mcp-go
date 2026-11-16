@@ -1,8 +1,10 @@
 # 安装 meego-mcp-go
 
-需要 Apple 芯片 Mac、Codex 和飞书项目 MCP 用户 Token。发布包是 macOS arm64 的单文件二进制。
+需要 Codex 和飞书项目 MCP 用户 Token。发布包支持 Apple 芯片 Mac 和 Windows x64。
 
 ## 1. 下载并安装
+
+### Apple 芯片 Mac
 
 ```bash
 (
@@ -24,9 +26,32 @@
 )
 ```
 
+### Windows x64
+
+在 PowerShell 中运行以下命令。
+
+```powershell
+$ErrorActionPreference = 'Stop'
+$releaseUrl = 'https://github.com/yjcdon/meego-mcp-go/releases/download/v2.0.0'
+$archive = 'meego-mcp-go_windows_amd64.zip'
+$temp = Join-Path ([System.IO.Path]::GetTempPath()) ([guid]::NewGuid().ToString())
+$zip = Join-Path $temp $archive
+$checksum = Join-Path $temp "$archive.sha256"
+$bin = Join-Path $HOME '.local\bin'
+New-Item -ItemType Directory -Path $temp, $bin -Force | Out-Null
+Invoke-WebRequest -UseBasicParsing -Uri "$releaseUrl/$archive" -OutFile $zip
+Invoke-WebRequest -UseBasicParsing -Uri "$releaseUrl/$archive.sha256" -OutFile $checksum
+if ((Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash -ne (Get-Content -Raw -LiteralPath $checksum).Trim()) {
+    throw 'SHA-256 校验失败。'
+}
+Expand-Archive -LiteralPath $zip -DestinationPath $temp
+Copy-Item -LiteralPath (Join-Path $temp 'meego-mcp-go.exe') -Destination $bin -Force
+(Join-Path $bin 'meego-mcp-go.exe').Replace('\', '/')
+```
+
 ## 2. 配置 Codex 和 Token
 
-在本机 `~/.codex/config.toml` 中配置以下条目。将 `command` 替换为安装命令输出的绝对路径，填入飞书项目 MCP 用户 Token。
+在本机 `~/.codex/config.toml` 中配置以下条目。将 `command` 替换为安装命令输出的绝对路径，例如 Windows 上的 `C:/Users/yourname/.local/bin/meego-mcp-go.exe`。填入飞书项目 MCP 用户 Token。
 
 ```toml
 [mcp_servers.feishu_project_mcp]
@@ -42,7 +67,7 @@ MCP_USER_TOKEN = "REPLACE_WITH_YOUR_MEEGO_MCP_USER_TOKEN"
 
 运行 `codex mcp list`，确认 `feishu_project_mcp` 已启用，启动命令指向 Go 二进制。这一步验证配置能被 Codex 读取。重启 Codex 后，在新会话试一次只读查询，例如「通过飞书项目 MCP 查询我最近访问的项目」。返回项目数据后，即可确认凭证和连接都可用。工具权限由飞书项目账号决定。 [Codex MCP 配置说明](https://learn.chatgpt.com/docs/extend/mcp?surface=app)
 
-Codex 若弹出确认框，核对工具名为 `search_project_info` 后批准这次查询。已获授权的非交互验证可以使用下面的命令，临时只开放这个 MCP 的查询工具，并让本次会话直接调用。命令行选项不会写回配置文件。
+Codex 若弹出确认框，核对工具名为 `search_project_info` 后批准这次查询。在 macOS 上，已获授权的非交互验证也可以使用下面的命令，临时只开放这个 MCP 的查询工具。命令行选项不会写回配置文件。
 
 ```bash
 codex exec --ephemeral --sandbox read-only \
