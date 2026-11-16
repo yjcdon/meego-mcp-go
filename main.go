@@ -4,12 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -22,121 +19,63 @@ import (
 )
 
 const (
-	defaultDomain = "https://project.feishu.cn"
-	defaultServer = "feishu_project_readonly_mcp"
-	serverPath    = "/mcp_server/v1"
-	connectLimit  = 20 * time.Second
-	requestLimit  = 2 * time.Minute
-	sseRetries    = 2 // Match the legacy Node client's SSE recovery budget.
+	version          = "2.0.0"
+	upstreamHost     = "project.feishu.cn"
+	upstreamEndpoint = "https://" + upstreamHost + "/mcp_server/v1"
+	connectLimit     = 20 * time.Second
+	requestLimit     = 2 * time.Minute
+	sseRetries       = 2
 )
 
-type config struct {
-	endpoint *url.URL
-	token    string
-	ppe      string
-	boe      string
-	debug    bool
-}
-
-func parseConfig(args []string, output io.Writer) (config, error) {
-	flags := flag.NewFlagSet("meego-mcp-go", flag.ContinueOnError)
-	flags.SetOutput(output)
-	domain := flags.String("domain", defaultDomain, "Feishu Project domain")
-	configPath := flags.String("config", "", "Read credentials from this Codex TOML file (default: ~/.codex/config.toml)")
-	credentialServer := flags.String("credential-server", defaultServer, "MCP server section containing the existing Feishu credentials")
-	lang := flags.String("lang", "", "Response language, zh or en")
-	debug := flags.Bool("debug", false, "Print connection status to stderr")
-	if err := flags.Parse(args); err != nil {
-		return config{}, err
-	}
-	if flags.NArg() != 0 {
-		return config{}, errors.New("unexpected positional arguments")
-	}
-	if *lang != "" && *lang != "zh" && *lang != "en" {
-		return config{}, errors.New("--lang must be zh or en")
-	}
-	endpoint, err := url.Parse(*domain)
-	if err != nil || endpoint.Scheme != "https" || endpoint.Hostname() == "" ||
-		endpoint.User != nil || endpoint.RawQuery != "" || endpoint.ForceQuery ||
-		endpoint.Fragment != "" || (endpoint.Path != "" && endpoint.Path != "/") {
-		return config{}, errors.New("--domain must be an HTTPS origin, without credentials, path, query or fragment")
-	}
-	endpoint.Path = serverPath
-	endpoint.RawPath = ""
-	if *lang != "" {
-		endpoint.RawQuery = url.Values{"lang": {*lang}}.Encode()
-	}
-	if *configPath == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return config{}, errors.New("could not locate Codex config; specify --config")
-		}
-		*configPath = filepath.Join(home, ".codex", "config.toml")
-	}
-	credentials, err := readCredentials(*configPath, *credentialServer)
-	if err != nil {
-		return config{}, err
-	}
-	return config{
-		endpoint: endpoint,
-		token:    credentials["MCP_USER_TOKEN"],
-		ppe:      credentials["MCP_PPE_ENV"],
-		boe:      credentials["MCP_BOE_ENV"],
-		debug:    *debug,
-	}, nil
-}
-
 type codexConfig struct {
-	Servers map[string]struct {
-		Env map[string]string `toml:"env"`
+	Servers struct {
+		FeishuProject struct {
+			Env struct {
+				Token string `toml:"MCP_USER_TOKEN"`
+			} `toml:"env"`
+		} `toml:"feishu_project_mcp"`
 	} `toml:"mcp_servers"`
 }
 
-func readCredentials(path, server string) (map[string]string, error) {
-	data, err := os.ReadFile(path)
+func readToken() (string, error) {
+	home, err := os.UserHomeDir()
 	if err != nil {
-		return nil, fmt.Errorf("read Codex config: %w", err)
+		return "", errors.New("could not locate ~/.codex/config.toml")
+	}
+	data, err := os.ReadFile(filepath.Join(home, ".codex", "config.toml"))
+	if err != nil {
+		return "", fmt.Errorf("read Codex config: %w", err)
 	}
 	var file codexConfig
 	if err := toml.Unmarshal(data, &file); err != nil {
 		// TOML errors can include source text containing credentials.
-		return nil, errors.New("could not parse Codex config as TOML")
+		return "", errors.New("could not parse Codex config as TOML")
 	}
-	credentials := file.Servers[server].Env
-	if credentials["MCP_USER_TOKEN"] == "" {
-		return nil, fmt.Errorf("MCP_USER_TOKEN is missing from [mcp_servers.%s.env] in the Codex config", server)
+	token := file.Servers.FeishuProject.Env.Token
+	if token == "" {
+		return "", errors.New("MCP_USER_TOKEN is missing from [mcp_servers.feishu_project_mcp.env] in the Codex config")
 	}
-	return credentials, nil
+	return token, nil
 }
 
 type upstreamTransport struct {
-	config
-	base http.RoundTripper
+	token string
+	base  http.RoundTripper
 }
 
 func (t upstreamTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if req.URL.Scheme != t.endpoint.Scheme || req.URL.Host != t.endpoint.Host {
+	if req.URL.Scheme != "https" || req.URL.Host != upstreamHost {
 		return nil, errors.New("upstream request changed origin")
 	}
 
 	authenticated := req.Clone(req.Context())
-	// The current CLI sends this literal header name on the wire.
-	authenticated.Header.Set("HeaderKeyMCPConnectionType", "stdio")
 	authenticated.Header.Set("X-Mcp-Token", t.token)
-	if t.ppe != "" {
-		authenticated.Header.Set("X-Tt-Env", t.ppe)
-		authenticated.Header.Set("X-Use-Ppe", "1")
-	}
-	if t.boe != "" {
-		authenticated.Header.Set("X-Tt-Env", t.boe)
-	}
 	return t.base.RoundTrip(authenticated)
 }
 
-func openUpstream(ctx context.Context, cfg config, base http.RoundTripper) (*mcp.ClientSession, error) {
-	client := mcp.NewClient(&mcp.Implementation{Name: "lark-project-mcp", Version: "0.0.1"}, &mcp.ClientOptions{
-		Capabilities: &mcp.ClientCapabilities{Sampling: &mcp.SamplingCapabilities{}},
-		Logger:       slog.New(slog.DiscardHandler),
+func openUpstream(ctx context.Context, token string, base http.RoundTripper) (*mcp.ClientSession, error) {
+	client := mcp.NewClient(&mcp.Implementation{Name: "meego-mcp-go", Version: version}, &mcp.ClientOptions{
+		Logger: slog.New(slog.DiscardHandler),
 	})
 	for _, method := range toolMethods {
 		if err := mcp.AddSendingCustomMethod[*rawParams, *rawResult](client, proxyMethodPrefix+method); err != nil {
@@ -144,9 +83,9 @@ func openUpstream(ctx context.Context, cfg config, base http.RoundTripper) (*mcp
 		}
 	}
 	transport := &mcp.StreamableClientTransport{
-		Endpoint: cfg.endpoint.String(),
+		Endpoint: upstreamEndpoint,
 		HTTPClient: &http.Client{
-			Transport: upstreamTransport{config: cfg, base: base},
+			Transport: upstreamTransport{token: token, base: base},
 		},
 		MaxRetries:   sseRetries,
 		MaxEventSize: -1,
@@ -171,7 +110,7 @@ type rawResult struct {
 // Register internal aliases so the SDK handles protocol lifecycle and
 // errors while the proxy preserves the original JSON for forwarded tools.
 func newProxy(upstream *mcp.ClientSession) (*mcp.Server, error) {
-	server := mcp.NewServer(&mcp.Implementation{Name: "meego-mcp-go", Version: "1.0.0"}, &mcp.ServerOptions{
+	server := mcp.NewServer(&mcp.Implementation{Name: "meego-mcp-go", Version: version}, &mcp.ServerOptions{
 		Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{}},
 		Logger:       slog.New(slog.DiscardHandler),
 	})
@@ -256,20 +195,17 @@ func upstreamError(err error) error {
 	}
 }
 
-func run(ctx context.Context, cfg config, transport mcp.Transport, stderr io.Writer) error {
+func run(ctx context.Context, token string, transport mcp.Transport) error {
 	connectCtx, cancel := context.WithTimeout(ctx, connectLimit)
-	upstream, err := openUpstream(connectCtx, cfg, http.DefaultTransport)
+	upstream, err := openUpstream(connectCtx, token, http.DefaultTransport)
 	cancel()
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return errors.New("connection to Feishu Project MCP timed out")
 		}
-		return errors.New("could not connect to Feishu Project MCP; check the domain, network and MCP_USER_TOKEN")
+		return errors.New("could not connect to Feishu Project MCP; check the network and MCP_USER_TOKEN")
 	}
 	defer upstream.Close()
-	if cfg.debug {
-		fmt.Fprintln(stderr, "connected to Feishu Project MCP")
-	}
 	server, err := newProxy(upstream)
 	if err != nil {
 		return err
@@ -278,14 +214,15 @@ func run(ctx context.Context, cfg config, transport mcp.Transport, stderr io.Wri
 }
 
 func main() {
-	cfg, err := parseConfig(os.Args[1:], os.Stderr)
-	if errors.Is(err, flag.ErrHelp) {
-		return
+	if len(os.Args) != 1 {
+		fmt.Fprintln(os.Stderr, "meego-mcp-go does not accept command-line arguments")
+		os.Exit(1)
 	}
+	token, err := readToken()
 	if err == nil {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
-		err = run(ctx, cfg, &mcp.StdioTransport{MaxLineLength: -1}, os.Stderr)
+		err = run(ctx, token, &mcp.StdioTransport{MaxLineLength: -1})
 	}
 	if err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintln(os.Stderr, "meego-mcp-go:", err)
