@@ -1,5 +1,7 @@
 # meego-mcp-go
 
+[![M8ven Score](https://m8ven.ai/badge/mcp/yjcdon-meego-mcp-go-0arvi6?v=46edee86fe478b72c9c7ca01ad06445f)](https://m8ven.ai/mcp/yjcdon-meego-mcp-go-0arvi6?s=readme)
+
 ## 项目介绍
 
 `meego-mcp-go` 是飞书项目（Meego）的 Go 版 MCP 代理。它让 Codex 通过本地 stdio 查询工作项、评论和项目空间，也可以调用飞书项目为当前账号开放的写入工具。项目是独立实现，权限由飞书项目及用户 Token 决定。
